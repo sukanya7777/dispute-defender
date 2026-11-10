@@ -45,6 +45,7 @@ export interface Dispute {
     notes?: string;
     evidence_info?: { tracking_info?: Array<{ carrier_name: string; tracking_number: string }> };
   }>;
+  supporting_info?: Array<{ notes?: string; source?: string; provided_time?: string; documents?: Array<{ name?: string }> }>;
   offer?: { buyer_requested_amount?: Money; seller_offered_amount?: Money; offer_type?: string };
   allowed_response_options?: {
     accept_claim?: { accept_claim_types?: string[] };

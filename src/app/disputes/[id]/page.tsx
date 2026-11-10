@@ -468,6 +468,20 @@ export default function DisputePage() {
                   ))}
                 </div>
               )}
+              {(d.supporting_info ?? []).map((s, i) => (
+                <div key={`si${i}`} className={`msg ${s.source === "SUBMITTED_BY_SELLER" ? "seller" : ""}`} style={{ marginTop: 8 }}>
+                  <div className="msg-meta">
+                    {s.source === "SUBMITTED_BY_SELLER" ? "Supporting information you sent (by the agent)" : "Supporting information"}
+                    {s.provided_time ? ` · ${clock(s.provided_time)}` : ""}
+                  </div>
+                  <div style={{ whiteSpace: "pre-wrap" }}>{s.notes}</div>
+                  {(s.documents ?? []).map((doc) => (
+                    <div key={doc.name} className="small muted" style={{ marginTop: 4 }}>
+                      Attached: {doc.name}
+                    </div>
+                  ))}
+                </div>
+              ))}
               <p className="muted small" style={{ marginTop: 12 }}>
                 PayPal allows right now: {allowed.length ? allowed.map((a) => <span key={a} className="code" style={{ marginRight: 4 }}>{a}</span>) : "no seller action"}
               </p>
