@@ -12,7 +12,7 @@ import { AnthropicBedrock, AnthropicBedrockMantle } from "@anthropic-ai/bedrock-
 import { cache, invalidate } from "./cache";
 import { novaCreate } from "./nova";
 import { buildEvidencePdf } from "./evidence-pdf";
-import { checkAction, needsHuman, PAYPAL_REL, refundExposure } from "./guardrails";
+import { canRefundPayment, checkAction, needsHuman, PAYPAL_REL, refundExposure } from "./guardrails";
 import { buildOrderRecord, decodeCustomId, findOrderRecord, saveOrderRecord } from "./oms";
 import { allowedActions, num, paypal, PayPalError } from "./paypal";
 import { consumeRunBudget, db, getCase, save, uid } from "./store";
@@ -54,7 +54,7 @@ const SYSTEM = `You are Dispute Defender, an agent that handles PayPal disputes 
 # How PayPal disputes work
 - INQUIRY stage: buyer and seller talk directly. The seller can message the buyer, make a refund offer, accept the claim (full refund, closes the dispute), or escalate to a claim so PayPal decides. Many "not received" inquiries end when the buyer is shown the delivery scan.
 - Claim stages (CHARGEBACK, PRE_ARBITRATION, ARBITRATION): PayPal decides. When the status is WAITING_FOR_SELLER_RESPONSE the seller must provide evidence before seller_response_due_date or loses by default. Evidence is a typed submission (for example PROOF_OF_FULFILLMENT with carrier and tracking number) plus notes and a document.
-- A dispute can also go straight to PayPal's review (status UNDER_REVIEW). If available_actions then lists provide-supporting-info, use it to put the seller's proof in front of the reviewer; if the seller is at fault and no refund action is available, record the assessment and say the seller should wait for PayPal's decision.
+- A dispute can also go straight to PayPal's review (status UNDER_REVIEW). If available_actions then lists provide-supporting-info, use it to put the seller's proof in front of the reviewer; if the seller cannot win, refund the payment with stage_refund_payment instead.
 - The buyer's own statement may be in the message thread or in evidences with source SUBMITTED_BY_BUYER.
 - PayPal only allows certain actions at each moment. get_dispute returns available_actions; an action that is not listed there will be rejected, so do not stage it.
 - Seller Protection covers "item not received" and "unauthorised" claims on physical goods when the seller has carrier proof of delivery to the address on the PayPal transaction. It does not cover "not as described" claims. For digital goods, access and usage logs are the evidence that counts.
@@ -68,11 +68,13 @@ const SYSTEM = `You are Dispute Defender, an agent that handles PayPal disputes 
    - ACCEPT when the buyer is right or the seller has no evidence. Conceding a claim you would lose anyway avoids the dispute fee and keeps the customer. Say so plainly.
    - WAIT when PayPal currently allows no useful action.
    Weigh the numbers: probability of winning times the amount, against the dispute fee and the refund. Small orders are rarely worth a fight.
-3. Stage the PayPal action or actions that carry out the decision (usually one, at most three). Nothing is sent to PayPal until the seller approves it, or autopilot rules allow it, so write each action so that it is ready to send as is.
-4. Call record_assessment exactly once, after staging. Estimate win_probability honestly; the money figures are calculated for you from it.
+3. Call record_assessment exactly once, as soon as you have decided and before staging anything. Estimate win_probability honestly; the money figures are calculated for you from it.
+4. Then stage the PayPal action or actions that carry out that strategy (usually one, at most three). After the assessment you are offered only the actions that fit the strategy you recorded and that PayPal allows now. Nothing is sent to PayPal until the seller approves it, or autopilot rules allow it, so write each action so that it is ready to send as is. Do not stop before staging unless the strategy is WAIT.
 5. Finish with two or three plain sentences for the seller: what you found, what you staged and why.
 
 # Standards
+- Decide the strategy from the facts first, then pick the tool. Never choose FIGHT because a fighting tool happens to be the one on offer.
+- "Item not received" is won only with proof of DELIVERY to the buyer. Proof of shipping is not enough. If the carrier record shows the parcel was lost, damaged, destroyed, returned or never delivered, or there is no tracking, the buyer is owed their money: strategy ACCEPT with a refund. "The carrier is responsible" is not a defence against the buyer; the seller recovers from the carrier separately. In that case win_probability is under 15.
 - Check available_actions before staging. In the INQUIRY stage provide-evidence is not available: to fight an inquiry, message the buyer with the proof (preferred first step, it often ends the dispute) or escalate to a claim.
 - Never say something was done unless a record shows it was done. If the notes say a carrier claim is "not yet filed", do not tell the buyer it was filed. Do not promise replacements, discounts or timelines the store policy does not give.
 - Give dates and times as they appear in the records (for example "8 Nov, 23:45 UTC"), never "yesterday" or "last week".
@@ -171,6 +173,20 @@ const tools: Beta.BetaTool[] = [
     },
   },
   {
+    name: "stage_refund_payment",
+    description: "Stage a refund of the captured payment through the PayPal Payments API. This is how the seller concedes when the dispute is already under PayPal's review and accept-claim is not offered: refunding the buyer settles what they asked for. Use it when the buyer is right or the seller cannot prove delivery.",
+    strict: true,
+    input_schema: {
+      type: "object",
+      properties: {
+        amount: { type: "number", description: "Refund amount in the dispute currency; the full disputed amount unless a partial refund is clearly fair." },
+        note: { type: "string", description: "Short note the buyer sees with the refund: what went wrong and the amount refunded. Maximum 250 characters." },
+      },
+      required: ["amount", "note"],
+      additionalProperties: false,
+    },
+  },
+  {
     name: "stage_accept_claim",
     description: "Stage accepting liability (accept-claim): PayPal refunds the buyer the full disputed amount and closes the dispute. Use when the buyer is right or the case cannot be won.",
     strict: true,
@@ -194,7 +210,7 @@ const tools: Beta.BetaTool[] = [
   },
   {
     name: "record_assessment",
-    description: "Record your assessment for the seller's dashboard. Call exactly once, after staging actions.",
+    description: "Record your assessment for the seller's dashboard. Call exactly once, after investigating and before staging any action.",
     strict: true,
     input_schema: {
       type: "object",
@@ -226,6 +242,7 @@ const STAGE_TOOLS: Record<string, ActionType> = {
   stage_make_offer: "make_offer",
   stage_provide_evidence: "provide_evidence",
   stage_provide_supporting_info: "provide_supporting_info",
+  stage_refund_payment: "refund_payment",
   stage_accept_claim: "accept_claim",
   stage_escalate_to_claim: "escalate_to_claim",
 };
@@ -258,6 +275,36 @@ export async function loadOrder(d: Dispute): Promise<OrderRecord | undefined> {
     return undefined;
   }
 }
+
+/** States plainly what the fulfilment record proves, so it cannot be misread. */
+function deliverySummary(rec: OrderRecord): { proof_of_delivery: boolean; meaning: string } {
+  const f = rec.fulfillment;
+  if (f.type === "DIGITAL") {
+    const used = f.accessLogs.filter((l) => l.action !== "ACCESS_EMAIL_SENT").length;
+    return used > 0
+      ? { proof_of_delivery: true, meaning: `Digital delivery is proven: ${used} access or usage events are logged after the purchase.` }
+      : { proof_of_delivery: false, meaning: "The access email was sent but there is no logged access or usage. Delivery is not proven." };
+  }
+  if (f.deliveryStatus === "DELIVERED") {
+    return { proof_of_delivery: true, meaning: `The carrier confirms delivery${f.signedBy ? `, signed for by ${f.signedBy}` : ""}${f.shipToMatchesPayPalAddress ? ", at the address on the PayPal transaction" : ""}.` };
+  }
+  if (f.deliveryStatus === "EXCEPTION") {
+    return { proof_of_delivery: false, meaning: "NOT DELIVERED. The carrier reports a delivery exception and the parcel will not reach the buyer. There is no proof of delivery, so an 'item not received' claim cannot be won; the buyer is owed a refund and the seller claims the loss from the carrier." };
+  }
+  if (f.trackingNumber === "UNTRACKED") {
+    return { proof_of_delivery: false, meaning: "NO PROOF OF DELIVERY. The item went by untracked post, so delivery cannot be shown to PayPal." };
+  }
+  return { proof_of_delivery: false, meaning: "Not delivered yet according to the carrier. There is no proof of delivery at this time." };
+}
+
+/** Which staged actions carry out which strategy. */
+const STRATEGY_ACTIONS: Record<string, ActionType[]> = {
+  FIGHT: ["send_message", "provide_evidence", "provide_supporting_info", "escalate_to_claim"],
+  NEGOTIATE: ["send_message", "make_offer"],
+  SETTLE: ["make_offer", "refund_payment", "accept_claim", "send_message"],
+  ACCEPT: ["accept_claim", "refund_payment", "make_offer"],
+  WAIT: [],
+};
 
 /** The fight-or-concede arithmetic. Done in code so the numbers always add up. */
 function expectedValue(winPct: number, strategy: string, d: Dispute, actions: StagedAction[], fee: number): Assessment["expected_value"] {
@@ -307,7 +354,7 @@ function forModel(d: Dispute) {
     evidences: d.evidences ?? [],
     offer: d.offer ?? null,
     outcome: d.dispute_outcome ?? null,
-    available_actions: allowedActions(d),
+    available_actions: [...allowedActions(d), ...(canRefundPayment(d) && !allowedActions(d).includes("accept-claim") ? ["refund-payment"] : [])],
     allowed_response_options: d.allowed_response_options ?? null,
   };
 }
@@ -343,7 +390,7 @@ async function runTool(ctx: RunCtx, name: string, input: Record<string, unknown>
       const d = ctx.dispute ?? (await dispute());
       const rec = await loadOrder(d);
       if (!rec) return ok({ found: false, note: "The seller has no order record for this transaction. No fulfilment evidence is available." });
-      return ok({ found: true, ...rec });
+      return ok({ found: true, delivery_summary: deliverySummary(rec), ...rec });
     }
 
     case "get_payment_details": {
@@ -395,7 +442,7 @@ async function runTool(ctx: RunCtx, name: string, input: Record<string, unknown>
       };
       ctx.run.assessment = assessment;
       save();
-      return ok({ recorded: true });
+      return ok({ recorded: true, next: assessment.strategy === "WAIT" ? "No action needed. Finish with your summary for the seller." : `Now stage the action(s) that carry out ${assessment.strategy}.` });
     }
   }
 
@@ -438,6 +485,7 @@ const TOOL_LABEL: Record<string, string> = {
   stage_make_offer: "Drafted a settlement offer",
   stage_provide_evidence: "Prepared evidence for PayPal",
   stage_provide_supporting_info: "Prepared supporting information for PayPal",
+  stage_refund_payment: "Prepared a refund of the payment",
   stage_accept_claim: "Prepared to accept the claim",
   stage_escalate_to_claim: "Prepared to escalate to a PayPal claim",
   record_assessment: "Recorded the assessment",
@@ -481,11 +529,22 @@ async function agentLoop(ctx: RunCtx, trigger: AgentRun["trigger"]): Promise<voi
     },
   ];
   const usage = { input_tokens: 0, output_tokens: 0 };
+  let nudged = false;
 
   for (let turn = 0; turn < MAX_TURNS; turn++) {
     // Once the dispute is loaded, only offer the write tools PayPal allows now.
     const d = ctx.dispute;
-    const live = d ? tools.filter((t) => !STAGE_TOOLS[t.name] || allowedActions(d).includes(PAYPAL_REL[STAGE_TOOLS[t.name]])) : tools;
+    const offered = (type: ActionType) =>
+      type === "refund_payment"
+        ? canRefundPayment(d!) && !allowedActions(d!).includes("accept-claim") // accept-claim is the cleaner way to concede when PayPal offers it
+        : allowedActions(d!).includes(PAYPAL_REL[type]);
+    // Write tools appear only after the assessment, and only those that fit it.
+    const fits = (type: ActionType) => Boolean(run.assessment && STRATEGY_ACTIONS[run.assessment.strategy]?.includes(type));
+    const live = tools.filter((t) => {
+      const type = STAGE_TOOLS[t.name];
+      if (!type) return t.name !== "record_assessment" || !run.assessment;
+      return Boolean(d) && fits(type) && offered(type);
+    });
     const res = await createMessage(client, messages, live);
     usage.input_tokens += res.usage.input_tokens + (res.usage.cache_read_input_tokens ?? 0) + (res.usage.cache_creation_input_tokens ?? 0);
     usage.output_tokens += res.usage.output_tokens;
@@ -499,7 +558,18 @@ async function agentLoop(ctx: RunCtx, trigger: AgentRun["trigger"]): Promise<voi
 
     if (res.stop_reason === "refusal") throw new Error("The model declined this request.");
     if (res.stop_reason === "max_tokens") throw new Error("The model ran out of output tokens mid-turn.");
-    if (res.stop_reason !== "tool_use") return;
+    if (res.stop_reason !== "tool_use") {
+      // A decision without an action leaves the seller with nothing to approve.
+      const a = run.assessment;
+      if (a && a.strategy !== "WAIT" && run.actions.length === 0 && !nudged && live.some((t) => STAGE_TOOLS[t.name])) {
+        nudged = true;
+        const said = res.content.filter((b) => b.type === "text" && b.text.trim());
+        messages.push({ role: "assistant", content: said.length ? (said as Beta.BetaContentBlockParam[]) : [{ type: "text", text: "(no action staged yet)" }] });
+        messages.push({ role: "user", content: `You recorded the strategy ${a.strategy} but staged no action. Stage the action that carries it out now.` });
+        continue;
+      }
+      return;
+    }
 
     messages.push({ role: "assistant", content: res.content as Beta.BetaContentBlockParam[] });
     const calls = res.content.filter((b): b is Beta.BetaToolUseBlock => b.type === "tool_use");
@@ -644,6 +714,12 @@ export async function executeRun(disputeId: string, runId: string, by: "seller" 
           const order = await loadOrder(d);
           const pdf = await buildEvidencePdf({ storeName: settings.storeName, dispute: d, order, letter: String(i.letter), evidenceType: "SUPPORTING_INFORMATION" });
           await pp.provideSupportingInfo(disputeId, String(i.notes), pdf);
+          break;
+        }
+        case "refund_payment": {
+          const captureId = d.disputed_transactions?.[0]?.seller_transaction_id;
+          if (!captureId) throw new Error("The dispute has no captured payment to refund.");
+          await pp.refundCapture(captureId, { currency_code: d.dispute_amount.currency_code, value: Number(i.amount).toFixed(2) }, String(i.note));
           break;
         }
         case "accept_claim": {

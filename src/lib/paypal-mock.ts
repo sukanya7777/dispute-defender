@@ -81,6 +81,7 @@ function links(d: Dispute): PayPalLink[] {
 
 function touch(d: Dispute): void {
   d.update_time = new Date().toISOString();
+  d.refund_details = d.status === "RESOLVED" ? undefined : { allowed_refund_amount: d.dispute_amount };
   d.links = links(d);
   d.allowed_response_options =
     d.status === "RESOLVED"
@@ -246,6 +247,14 @@ export const mockPayPal: PayPalApi = {
     requireLink(d, "provide-supporting-info");
     d.evidences = [...(d.evidences ?? []), { evidence_type: "OTHER", source: "SUBMITTED_BY_SELLER", notes: notes + (pdf ? `\n[attached: supporting-info-${id}.pdf, ${pdf.byteLength} bytes]` : "") }];
     touch(d);
+  },
+
+  async refundCapture(captureId, amount, note) {
+    const d = Object.values(state().disputes).find((x) => x.disputed_transactions?.[0]?.seller_transaction_id === captureId);
+    if (!d || d.status === "RESOLVED") throw new PayPalError(422, "CAPTURE_FULLY_REFUNDED", "Nothing left to refund on this capture.", "sim-debug");
+    d.messages = [...(d.messages ?? []), { posted_by: "SELLER", time_posted: new Date().toISOString(), content: note }];
+    resolve(d, "RESOLVED_BUYER_FAVOUR", amount);
+    return { id: "SIMREFUND", status: "COMPLETED" };
   },
 
   async acceptClaim(id, body) {

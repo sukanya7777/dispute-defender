@@ -11,6 +11,7 @@ export const PAYPAL_REL: Record<ActionType, string> = {
   make_offer: "make-offer",
   provide_evidence: "provide-evidence",
   provide_supporting_info: "provide-supporting-info",
+  refund_payment: "refund (Payments API)",
   accept_claim: "accept-claim",
   escalate_to_claim: "escalate",
 };
@@ -20,6 +21,7 @@ const TEXT_FIELDS: Record<ActionType, string[]> = {
   make_offer: ["note"],
   provide_evidence: ["notes"],
   provide_supporting_info: ["notes"],
+  refund_payment: ["note"],
   accept_claim: ["note"],
   escalate_to_claim: ["note"],
 };
@@ -28,7 +30,14 @@ const TEXT_FIELDS: Record<ActionType, string[]> = {
 export function checkAction(action: StagedAction, d: Dispute): string | null {
   const rel = PAYPAL_REL[action.type];
   const allowed = allowedActions(d);
-  if (!allowed.includes(rel)) {
+  if (action.type === "refund_payment") {
+    // Not a dispute action: a refund of the captured payment itself.
+    if (!canRefundPayment(d)) return "This payment cannot be refunded now (the dispute is closed, or PayPal reports no refundable amount).";
+    const amount = Number(action.input.amount);
+    const max = num(d.refund_details?.allowed_refund_amount) || num(d.dispute_amount);
+    if (!Number.isFinite(amount) || amount <= 0) return "The refund amount must be greater than zero.";
+    if (amount > max + 0.001) return `The refund (${amount.toFixed(2)}) exceeds the refundable amount (${max.toFixed(2)}).`;
+  } else if (!allowed.includes(rel)) {
     return `PayPal does not allow '${rel}' on this dispute right now (status ${d.status}, stage ${d.dispute_life_cycle_stage}). Allowed: ${allowed.join(", ") || "none"}.`;
   }
   for (const f of TEXT_FIELDS[action.type]) {
@@ -50,10 +59,15 @@ export function checkAction(action: StagedAction, d: Dispute): string | null {
   return null;
 }
 
+/** A direct refund is possible while the dispute is open and PayPal reports a refundable amount. */
+export function canRefundPayment(d: Dispute): boolean {
+  return d.status !== "RESOLVED" && !d.adjudications?.length && Boolean(d.disputed_transactions?.[0]?.seller_transaction_id) && num(d.refund_details?.allowed_refund_amount) > 0;
+}
+
 /** How much of the seller's money this action gives away. */
 export function refundExposure(action: StagedAction, d: Dispute): number {
   if (action.type === "accept_claim") return num(d.dispute_amount);
-  if (action.type === "make_offer") return Number(action.input.amount) || 0;
+  if (action.type === "make_offer" || action.type === "refund_payment") return Number(action.input.amount) || 0;
   return 0;
 }
 

@@ -45,6 +45,7 @@ export interface Dispute {
     notes?: string;
     evidence_info?: { tracking_info?: Array<{ carrier_name: string; tracking_number: string }> };
   }>;
+  refund_details?: { allowed_refund_amount?: Money };
   adjudications?: Array<{ type?: string; adjudication_time?: string; reason?: string }>;
   supporting_info?: Array<{ notes?: string; source?: string; provided_time?: string; documents?: Array<{ name?: string }> }>;
   offer?: { buyer_requested_amount?: Money; seller_offered_amount?: Money; offer_type?: string };
@@ -116,7 +117,7 @@ export interface Assessment {
   risk_flags: string[];
 }
 
-export type ActionType = "send_message" | "make_offer" | "provide_evidence" | "provide_supporting_info" | "accept_claim" | "escalate_to_claim";
+export type ActionType = "send_message" | "make_offer" | "provide_evidence" | "provide_supporting_info" | "refund_payment" | "accept_claim" | "escalate_to_claim";
 
 export interface StagedAction {
   id: string;

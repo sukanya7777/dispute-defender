@@ -41,6 +41,7 @@ export interface PayPalApi {
   makeOffer(id: string, offer: { note: string; offer_type: string; offer_amount?: Money }): Promise<void>;
   provideEvidence(id: string, evidence: EvidenceInput, pdf?: Uint8Array): Promise<void>;
   provideSupportingInfo(id: string, notes: string, pdf?: Uint8Array): Promise<void>;
+  refundCapture(captureId: string, amount: Money, note: string): Promise<{ id?: string; status?: string }>;
   acceptClaim(id: string, body: { note: string; accept_claim_type?: string }): Promise<void>;
   escalate(id: string, note: string): Promise<void>;
   sandboxRequireEvidence(id: string, action: "BUYER_EVIDENCE" | "SELLER_EVIDENCE"): Promise<void>;
@@ -167,6 +168,14 @@ const real: PayPalApi = {
     if (pdf) form.append("file1", new Blob([pdf as BlobPart], { type: "application/pdf" }), `supporting-info-${id}.pdf`);
     await call("POST", `/v1/customer/disputes/${encodeURIComponent(id)}/provide-supporting-info`, undefined, { form });
   },
+
+  refundCapture: (captureId, amount, note) =>
+    call(
+      "POST",
+      `/v2/payments/captures/${encodeURIComponent(captureId)}/refund`,
+      { amount, note_to_payer: note.slice(0, 255) },
+      { headers: { "PayPal-Request-Id": `dd-refund-${captureId}-${amount.value}` } }, // idempotent: a retry cannot refund twice
+    ),
 
   async acceptClaim(id, body) {
     await call("POST", `/v1/customer/disputes/${encodeURIComponent(id)}/accept-claim`, body);

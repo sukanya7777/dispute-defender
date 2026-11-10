@@ -56,6 +56,8 @@ Requires Node 20+.
 | **HATEOAS links** on the dispute | `src/lib/guardrails.ts` | The agent may only stage an action PayPal currently offers |
 | **Orders API v2**: create, capture | `src/app/api/store` | Demo store checkout with the PayPal JS SDK |
 | Orders: add tracking (`/track`) | capture route | Tracking is pushed to PayPal at fulfilment, which is itself dispute prevention |
+| Disputes: `provide-supporting-info` (notes + PDF) | `src/lib/paypal.ts` | The agent's proof for PayPal's reviewer when a claim is already under review |
+| **Payments API v2**: refund capture | agent tool `stage_refund_payment` | How the agent concedes when a claim is under review and `accept-claim` is not offered |
 | **Payments API v2**: show capture | agent tool `get_payment_details` | Seller Protection eligibility feeds the win estimate |
 | **Webhooks**: `CUSTOMER.DISPUTE.*` + `verify-webhook-signature` | `src/app/api/webhooks/paypal` | A new dispute starts the agent with nobody at the dashboard |
 
@@ -72,7 +74,8 @@ The agent is an LLM tool-use loop (`src/lib/agent.ts`). The model is pluggable t
 The demo and the results described here were produced with **Amazon Nova Pro**.
 
 - **Five read tools** (`get_dispute`, `get_order_record`, `get_payment_details`, `get_buyer_history`, `get_store_policy`) let it investigate before deciding.
-- **Five write tools** (`stage_send_message`, `stage_make_offer`, `stage_provide_evidence`, `stage_accept_claim`, `stage_escalate_to_claim`) only *stage* an action. Tool inputs are schema-constrained (`strict: true`).
+- **`record_assessment`** comes first: the model must commit to a strategy before it is offered any write tool, and then sees only the write tools that fit that strategy and that PayPal allows right now.
+- **Seven write tools** (`stage_send_message`, `stage_make_offer`, `stage_provide_evidence`, `stage_provide_supporting_info`, `stage_refund_payment`, `stage_accept_claim`, `stage_escalate_to_claim`) only *stage* an action. Tool inputs are schema-constrained (`strict: true`).
 - **`record_assessment`** captures strategy and win probability as structured data; the expected-value figures are then computed in code from that probability, the disputed amount and the dispute fee, so the money always adds up.
 - Once the dispute is loaded, the model is only offered the write tools PayPal currently allows.
 - The full trace (reasoning summaries, every tool call and result) is stored and shown, so the seller can see why.

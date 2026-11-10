@@ -21,6 +21,7 @@ const ACTION_TITLE: Record<string, string> = {
   make_offer: "Offer a settlement",
   provide_evidence: "Submit evidence to PayPal",
   provide_supporting_info: "Send supporting information to PayPal",
+  refund_payment: "Refund the payment",
   accept_claim: "Accept the claim and refund",
   escalate_to_claim: "Escalate to a PayPal claim",
 };
@@ -29,10 +30,11 @@ const ACTION_API: Record<string, string> = {
   make_offer: "POST /v1/customer/disputes/{id}/make-offer",
   provide_evidence: "POST /v1/customer/disputes/{id}/provide-evidence",
   provide_supporting_info: "POST /v1/customer/disputes/{id}/provide-supporting-info",
+  refund_payment: "POST /v2/payments/captures/{capture_id}/refund",
   accept_claim: "POST /v1/customer/disputes/{id}/accept-claim",
   escalate_to_claim: "POST /v1/customer/disputes/{id}/escalate",
 };
-const TEXT_KEY: Record<string, string> = { send_message: "message", make_offer: "note", provide_evidence: "notes", provide_supporting_info: "notes", accept_claim: "note", escalate_to_claim: "note" };
+const TEXT_KEY: Record<string, string> = { send_message: "message", make_offer: "note", provide_evidence: "notes", provide_supporting_info: "notes", refund_payment: "note", accept_claim: "note", escalate_to_claim: "note" };
 const ACTION_STATUS: Record<string, { text: string; tone: string }> = {
   staged: { text: "Ready to send", tone: "warn" },
   executed: { text: "Sent", tone: "good" },
@@ -119,6 +121,12 @@ function ActionCard({ a, run, disputeId, currency, editable, onChanged }: { a: S
         {a.type === "make_offer" && (
           <div className="row">
             <span className="pill accent">{label(String(a.input.offer_type))}</span>
+            <b>{money(Number(a.input.amount), currency)}</b>
+          </div>
+        )}
+        {a.type === "refund_payment" && (
+          <div className="row">
+            <span className="pill accent">Refund</span>
             <b>{money(Number(a.input.amount), currency)}</b>
           </div>
         )}
