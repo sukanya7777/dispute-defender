@@ -18,7 +18,7 @@ Built for the PayPal AI Hackathon.
 
 ## Try it
 
-**Hosted demo:** not deployed yet; run it locally with the steps below.
+**Hosted demo:** none. Run it locally with the steps below.
 
 **Locally, in two minutes (no PayPal account needed):**
 
@@ -33,9 +33,11 @@ With no PayPal credentials the app runs against a built-in **PayPal simulator** 
 
 Requires Node 20+.
 
+**The AI agent needs one AI provider** in `.env.local`: AWS credentials with Amazon Bedrock access for `AI_PROVIDER=nova` (what this project uses), or one of the Claude options described in `.env.example`. Without one, the app still runs, but disputes are not analysed.
+
 ### A five-minute tour
 
-1. **Disputes**: five open disputes; the agent analyses each one as it appears. Watch the *Agent's call* and *Win chance* columns fill in.
+1. **Disputes**: five open disputes; with an AI provider configured, the agent analyses each one as it appears. Watch the *Agent's call* and *Win chance* columns fill in.
 2. Open **Studio Monitor Headphones** (item not received). The agent found a signed-for delivery at the PayPal address and wants to fight. Read its reasoning trace, edit the drafted message if you like, press **Approve and send to PayPal**.
 3. In *Play the other side*, make the buyer escalate to a claim. PayPal now asks for evidence; the agent re-runs by itself, prepares a `PROOF_OF_FULFILLMENT` submission with the tracking number, and attaches a PDF evidence packet. Approve it, then have PayPal rule.
 4. Open **Hand-thrown Mug Set**. The carrier scanned it as destroyed in transit. The agent recommends refunding, and says why fighting would only add a fee.
@@ -44,6 +46,13 @@ Requires Node 20+.
 7. **Rules & autopilot**: turn autopilot on with a $25 limit. Small refunds and all evidence go out unattended; anything bigger still waits for you.
 
 ---
+
+## Tested against the real PayPal sandbox
+
+- **Headphones, $129, "item not received"**: bought through the demo store's PayPal checkout, disputed as the sandbox buyer at sandbox.paypal.com. The dispute arrived already under PayPal's review. The agent found the signed-for delivery, recommended fighting, and sent supporting information with a PDF evidence packet (`provide-supporting-info`). PayPal ruled for the seller.
+- **Mug set, $48, "item not received"**: the order record shows the carrier destroyed the parcel. The agent recommended refunding and, once approved, refunded the capture through the Payments API. PayPal settled the case in the buyer's favour.
+
+Because sandbox disputes went straight to PayPal's review, the inquiry-stage actions (`send-message`, `make-offer`, `escalate`, `accept-claim`) and the formal `provide-evidence` request were exercised on the built-in simulator, not on the live sandbox.
 
 ## How it uses PayPal
 
@@ -59,7 +68,7 @@ Requires Node 20+.
 | Disputes: `provide-supporting-info` (notes + PDF) | `src/lib/paypal.ts` | The agent's proof for PayPal's reviewer when a claim is already under review |
 | **Payments API v2**: refund capture | agent tool `stage_refund_payment` | How the agent concedes when a claim is under review and `accept-claim` is not offered |
 | **Payments API v2**: show capture | agent tool `get_payment_details` | Seller Protection eligibility feeds the win estimate |
-| **Webhooks**: `CUSTOMER.DISPUTE.*` + `verify-webhook-signature` | `src/app/api/webhooks/paypal` | A new dispute starts the agent with nobody at the dashboard |
+| **Webhooks**: `CUSTOMER.DISPUTE.*` + `verify-webhook-signature` | `src/app/api/webhooks/paypal` | A new dispute starts the agent with nobody at the dashboard (included but not exercised live; the demo polls the Disputes API) |
 
 ## How it uses AI
 
@@ -123,9 +132,9 @@ State PayPal does not hold (order records, agent case files, settings) lives in 
 5. The dispute appears under **Disputes** and the agent starts.
 6. Optional, for instant pickup: add a webhook in your REST app pointing at `https://<your-host>/api/webhooks/paypal`, subscribed to the *Customer dispute* events, and set `PAYPAL_WEBHOOK_ID`. Signatures are then verified with PayPal.
 
-## Deploy on Render
+## Deploying (optional)
 
-The repo has a `render.yaml` blueprint: **New → Blueprint**, select the repo, enter the secrets. The free plan's disk is not persistent; the app is built to tolerate that (see Architecture).
+The entry was not deployed for the hackathon. If you want to host it, the repo includes a `render.yaml` blueprint for Render: **New → Blueprint**, select the repo, enter the secrets. The free plan's disk is not persistent; the app is built to tolerate that (see Architecture).
 
 ## What is simulated
 
@@ -137,7 +146,7 @@ The dispute fee used in the maths is a setting; check PayPal's current fee sched
 
 ## Tools used
 
-Amazon Nova Pro on Amazon Bedrock for the agent (Claude supported as an alternative) · PayPal Disputes, Orders, Payments and Webhooks APIs and the PayPal JS SDK · AG Grid Community · Next.js, React, TypeScript · pdf-lib · Render.
+Amazon Nova Pro on Amazon Bedrock for the agent (Claude supported as an alternative) · PayPal Disputes, Orders, Payments and Webhooks APIs and the PayPal JS SDK · AG Grid Community · Next.js, React, TypeScript · pdf-lib.
 
 ## License
 
