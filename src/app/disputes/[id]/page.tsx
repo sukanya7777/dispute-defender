@@ -219,6 +219,9 @@ export default function DisputePage() {
   const due = d.status === "WAITING_FOR_SELLER_RESPONSE" ? dueIn(d.seller_response_due_date) : null;
   const awaiting = run?.state === "awaiting_approval" && isLatest;
   const isClaim = d.dispute_life_cycle_stage !== "INQUIRY";
+  // PayPal records its ruling first and closes the case a little later.
+  const ruling = !resolved ? d.adjudications?.at(-1) : undefined;
+  const ruledForSeller = ruling?.type === "DENY_BUYER";
   const post = (op: string) => api(`/api/disputes/${id}/sandbox`, { method: "POST", json: { op } });
 
   return (
@@ -251,6 +254,13 @@ export default function DisputePage() {
       {!data.aiConfigured && (
         <div className="banner">
           The agent is switched off: set <code>ANTHROPIC_API_KEY</code> and restart.
+        </div>
+      )}
+      {ruling && (
+        <div className="banner info" style={ruledForSeller ? { background: "var(--good-soft)", color: "var(--good)", borderColor: "#bfe6d2" } : undefined}>
+          <div>
+            <b>{ruledForSeller ? `PayPal has ruled in your favour. You keep ${money(amount, cur)}.` : "PayPal has ruled for the buyer."}</b> PayPal is closing the case; the status updates when it does.
+          </div>
         </div>
       )}
       {resolved && (
@@ -387,7 +397,7 @@ export default function DisputePage() {
 
         <div className="stack">
           {/* ---- demo controls ---- */}
-          {!resolved && (
+          {!resolved && !ruling && (
             <section className="card">
               <div className="card-head">
                 <h2>Play the other side</h2>
