@@ -18,12 +18,12 @@ Built for the PayPal AI Hackathon.
 
 ## Try it
 
-**Hosted demo:** _add your Render URL here_
+**Hosted demo:** not deployed yet; run it locally with the steps below.
 
 **Locally, in two minutes (no PayPal account needed):**
 
 ```bash
-git clone <this repo> && cd dispute-defender
+git clone https://github.com/sukanya7777/dispute-defender.git && cd dispute-defender
 npm install
 cp .env.example .env.local      # pick an AI provider; leave PayPal blank
 npm run dev                     # http://localhost:3000
