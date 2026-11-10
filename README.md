@@ -25,7 +25,7 @@ Built for the PayPal AI Hackathon.
 ```bash
 git clone <this repo> && cd dispute-defender
 npm install
-cp .env.example .env.local      # add ANTHROPIC_API_KEY; leave PayPal blank
+cp .env.example .env.local      # pick an AI provider; leave PayPal blank
 npm run dev                     # http://localhost:3000
 ```
 
@@ -61,11 +61,20 @@ Requires Node 20+.
 
 ## How it uses AI
 
-The agent is a Claude tool-use loop (`src/lib/agent.ts`, Anthropic SDK, model `claude-opus-5-5` with adaptive thinking).
+The agent is an LLM tool-use loop (`src/lib/agent.ts`). The model is pluggable through `AI_PROVIDER`:
+
+| `AI_PROVIDER` | Model | Credentials |
+|---|---|---|
+| `nova` | Amazon Nova Pro on Amazon Bedrock (Converse API, `src/lib/nova.ts`) | AWS credential chain |
+| `bedrock` | Claude on Amazon Bedrock | AWS credential chain |
+| unset | Claude through the Anthropic API | `ANTHROPIC_API_KEY` |
+
+The demo and the results described here were produced with **Amazon Nova Pro**.
 
 - **Five read tools** (`get_dispute`, `get_order_record`, `get_payment_details`, `get_buyer_history`, `get_store_policy`) let it investigate before deciding.
 - **Five write tools** (`stage_send_message`, `stage_make_offer`, `stage_provide_evidence`, `stage_accept_claim`, `stage_escalate_to_claim`) only *stage* an action. Tool inputs are schema-constrained (`strict: true`).
-- **`record_assessment`** captures strategy, win probability and expected value as structured data for the dashboard.
+- **`record_assessment`** captures strategy and win probability as structured data; the expected-value figures are then computed in code from that probability, the disputed amount and the dispute fee, so the money always adds up.
+- Once the dispute is loaded, the model is only offered the write tools PayPal currently allows.
 - The full trace (reasoning summaries, every tool call and result) is stored and shown, so the seller can see why.
 
 ### Guardrails: the model decides, code enforces
@@ -125,7 +134,7 @@ The dispute fee used in the maths is a setting; check PayPal's current fee sched
 
 ## Tools used
 
-Claude (Anthropic API) for the agent · PayPal Disputes, Orders, Payments and Webhooks APIs and the PayPal JS SDK · AG Grid Community · Next.js, React, TypeScript · pdf-lib · Render.
+Amazon Nova Pro on Amazon Bedrock for the agent (Claude supported as an alternative) · PayPal Disputes, Orders, Payments and Webhooks APIs and the PayPal JS SDK · AG Grid Community · Next.js, React, TypeScript · pdf-lib · Render.
 
 ## License
 
