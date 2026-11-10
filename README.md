@@ -102,7 +102,7 @@ Next.js route handlers ──────────────► PayPal REST
    │        ▲                             Disputes · Orders · Payments · Webhooks
    │        └── webhook: CUSTOMER.DISPUTE.*
    ▼
-sync.ts ── new or changed dispute ──► agent.ts (Claude tool loop)
+sync.ts ── new or changed dispute ──► agent.ts (LLM tool loop)   
                                          │ read tools → PayPal + order records
                                          │ stage_* tools → guardrails.ts
                                          ▼
