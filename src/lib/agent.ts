@@ -8,6 +8,7 @@
 //   - Code enforces the limits (guardrails.ts) and is the only thing that ever
 //     calls a PayPal write endpoint (executeRun below).
 import Anthropic from "@anthropic-ai/sdk";
+import { AnthropicBedrock, AnthropicBedrockMantle } from "@anthropic-ai/bedrock-sdk";
 import { cache, invalidate } from "./cache";
 import { buildEvidencePdf } from "./evidence-pdf";
 import { checkAction, needsHuman, PAYPAL_REL } from "./guardrails";
@@ -18,12 +19,27 @@ import type { ActionType, AgentRun, Assessment, Dispute, OrderRecord, StagedActi
 
 import type * as Beta from "@anthropic-ai/sdk/resources/beta/messages/messages";
 
-export const MODEL = process.env.ANTHROPIC_MODEL || "claude-opus-5-5";
+// Two ways to reach Claude: the Anthropic API (ANTHROPIC_API_KEY) or Amazon
+// Bedrock (AI_PROVIDER=bedrock, using the standard AWS credential chain).
+const USE_BEDROCK = process.env.AI_PROVIDER === "bedrock";
+export const MODEL = process.env.ANTHROPIC_MODEL || (USE_BEDROCK ? "global.anthropic.claude-sonnet-4-6" : "claude-opus-5-5");
+
+type MessagesClient = Pick<Anthropic, "beta">;
+function makeClient(): MessagesClient {
+  if (USE_BEDROCK) {
+    const awsRegion = process.env.AWS_REGION || process.env.AWS_DEFAULT_REGION || "us-east-1";
+    // BEDROCK_ENDPOINT=mantle selects Bedrock's newer Messages-API endpoint for
+    // accounts that have it; the default is the widely available runtime one.
+    const client = process.env.BEDROCK_ENDPOINT === "mantle" ? new AnthropicBedrockMantle({ awsRegion }) : new AnthropicBedrock({ awsRegion });
+    return client as unknown as MessagesClient;
+  }
+  return new Anthropic();
+}
 const EFFORT = (process.env.ANTHROPIC_EFFORT || "medium") as "low" | "medium" | "high";
 const MAX_TURNS = 14;
 
 export function aiConfigured(): boolean {
-  return Boolean(process.env.ANTHROPIC_API_KEY || process.env.ANTHROPIC_AUTH_TOKEN);
+  return USE_BEDROCK || Boolean(process.env.ANTHROPIC_API_KEY || process.env.ANTHROPIC_AUTH_TOKEN);
 }
 
 const SYSTEM = `You are Dispute Defender, an agent that handles PayPal disputes on behalf of a small online seller. The seller is usually one person who has no time to learn PayPal's dispute process, so most sellers lose winnable disputes simply by answering late or with the wrong evidence. Your job is to get this seller the best honest outcome on one dispute.
@@ -394,7 +410,7 @@ const TOOL_LABEL: Record<string, string> = {
   record_assessment: "Recorded the assessment",
 };
 
-async function createMessage(client: Anthropic, messages: Beta.BetaMessageParam[]): Promise<Beta.BetaMessage> {
+async function createMessage(client: MessagesClient, messages: Beta.BetaMessageParam[]): Promise<Beta.BetaMessage> {
   const base = {
     model: MODEL,
     max_tokens: 16000,
@@ -405,7 +421,8 @@ async function createMessage(client: Anthropic, messages: Beta.BetaMessageParam[
     output_config: { effort: EFFORT },
   };
   const g = globalThis as unknown as { __ddNoFallback?: boolean };
-  if (!g.__ddNoFallback) {
+  // Server-side fallback is an Anthropic API feature; Bedrock does not take it.
+  if (!USE_BEDROCK && !g.__ddNoFallback) {
     try {
       // If a safety classifier declines a request, let the API retry it on a
       // fallback model inside the same call instead of failing the run.
@@ -420,7 +437,7 @@ async function createMessage(client: Anthropic, messages: Beta.BetaMessageParam[
 
 async function agentLoop(ctx: RunCtx, trigger: AgentRun["trigger"]): Promise<void> {
   const { run } = ctx;
-  const client = new Anthropic();
+  const client = makeClient();
   const messages: Beta.BetaMessageParam[] = [
     {
       role: "user",
@@ -485,7 +502,7 @@ export function isRunning(disputeId: string): boolean {
 
 /** Start an agent run in the background. Returns the run, or a reason it did not start. */
 export function startRun(disputeId: string, trigger: AgentRun["trigger"], snapshot: string): { run?: AgentRun; error?: string } {
-  if (!aiConfigured()) return { error: "ANTHROPIC_API_KEY is not set, so the agent cannot run." };
+  if (!aiConfigured()) return { error: "No AI provider is configured (set ANTHROPIC_API_KEY, or AI_PROVIDER=bedrock), so the agent cannot run." };
   if (isRunning(disputeId)) return { error: "The agent is already working on this dispute." };
   if (!consumeRunBudget()) return { error: "Today's agent-run budget for this demo is used up. Try again tomorrow or raise AGENT_DAILY_RUN_LIMIT." };
 
@@ -526,7 +543,7 @@ export function startRun(disputeId: string, trigger: AgentRun["trigger"], snapsh
     } catch (e) {
       run.state = "failed";
       run.finishedAt = new Date().toISOString();
-      run.error = e instanceof Anthropic.AuthenticationError ? "The Anthropic API key was rejected." : e instanceof Anthropic.RateLimitError ? "Rate limited by the AI provider. Try again in a minute." : (e as Error).message;
+      run.error = e instanceof Anthropic.AuthenticationError || e instanceof Anthropic.PermissionDeniedError ? `The AI provider rejected the credentials: ${(e as Error).message}` : e instanceof Anthropic.RateLimitError ? "Rate limited by the AI provider. Try again in a minute." : (e as Error).message;
       trace(run, { kind: "error", title: "Run failed", body: run.error });
     } finally {
       running().delete(disputeId);
