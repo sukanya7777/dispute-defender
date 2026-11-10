@@ -413,9 +413,11 @@ export function simBuyerEscalates(id: string): void {
 }
 
 export function simReset(): void {
+  // Remove only what the simulator created; real sandbox history stays.
   const d = db();
+  const s = d.mock as MockState | undefined;
+  for (const id of Object.keys(s?.disputes ?? {})) delete d.cases[id];
+  for (const id of Object.keys(s?.captures ?? {})) delete d.orders[id];
   d.mock = undefined;
-  d.cases = {};
-  d.orders = {};
   save();
 }

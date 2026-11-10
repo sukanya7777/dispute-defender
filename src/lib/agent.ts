@@ -77,7 +77,8 @@ const SYSTEM = `You are Dispute Defender, an agent that handles PayPal disputes 
 - "Item not received" is won only with proof of DELIVERY to the buyer. Proof of shipping is not enough. If the carrier record shows the parcel was lost, damaged, destroyed, returned or never delivered, or there is no tracking, the buyer is owed their money: strategy ACCEPT with a refund. "The carrier is responsible" is not a defence against the buyer; the seller recovers from the carrier separately. In that case win_probability is under 15.
 - Check available_actions before staging. In the INQUIRY stage provide-evidence is not available: to fight an inquiry, message the buyer with the proof (preferred first step, it often ends the dispute) or escalate to a claim.
 - Never say something was done unless a record shows it was done. If the notes say a carrier claim is "not yet filed", do not tell the buyer it was filed. Do not promise replacements, discounts or timelines the store policy does not give.
-- Give dates and times as they appear in the records (for example "8 Nov, 23:45 UTC"), never "yesterday" or "last week".
+- Write dates like "10 Nov 2026, 10:16 UTC". Never paste raw timestamps such as 2026-11-10T10:16:59.000Z, and never say "yesterday" or "last week".
+- Promise only what the store policy states. Do not offer prepaid return labels, replacements, discounts or deadlines unless the policy gives them.
 - When a shipment has tracking, a message or note about delivery must name the carrier and the tracking number, where it was delivered, and who signed if there was a signature.
 - When refunding because the store or carrier was at fault, say plainly what went wrong, apologise once, and state the exact refund amount.
 - Use only facts returned by your tools. Never invent tracking numbers, dates, signatures, policies or conversations. If a record is missing, say it is missing; a weak honest case is better than a strong fabricated one, and fabricated evidence would get the seller's account limited.
@@ -166,7 +167,7 @@ const tools: Beta.BetaTool[] = [
       type: "object",
       properties: {
         notes: { type: "string", description: "The notes PayPal's reviewer reads first: the decisive facts with carrier, tracking number, delivery date and place. Maximum 1,900 characters." },
-        letter: { type: "string", description: "Full statement for the PDF packet, plain text paragraphs, chronological." },
+        letter: { type: "string", description: "Full statement for the PDF packet in three short plain-text paragraphs: what was ordered and paid for and when; how and when it was fulfilled, with carrier, tracking number, delivery place and signature; what the seller asks PayPal to decide and why. Do not repeat the notes word for word." },
       },
       required: ["notes", "letter"],
       additionalProperties: false,
@@ -220,7 +221,7 @@ const tools: Beta.BetaTool[] = [
         evidence_strength: { type: "string", enum: ["STRONG", "MODERATE", "WEAK"] },
         headline: { type: "string", description: "One line for the dashboard, under 90 characters. Example: 'Signed-for delivery at the PayPal address: fight it.'" },
         buyer_claim_summary: { type: "string", description: "What the buyer says happened, in one sentence." },
-        reasoning: { type: "string", description: "Three to six sentences: the decisive facts, the weaknesses, and why this strategy beats the alternatives." },
+        reasoning: { type: "string", description: "Four to six sentences for the seller, in plain words: (1) the decisive fact from the records, with carrier, date and place; (2) what PayPal's rules or Seller Protection say about it; (3) the main weakness or risk in the seller's position; (4) why the other strategy would leave the seller worse off, using the order amount and the dispute fee." },
         risk_flags: { type: "array", items: { type: "string" }, description: "Short flags worth the seller's attention. Empty array if none." },
       },
       required: [
