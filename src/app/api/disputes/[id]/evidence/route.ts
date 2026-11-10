@@ -12,7 +12,7 @@ export const GET = route(async (req: Request, ctx: { params: Promise<{ id: strin
   const actionId = new URL(req.url).searchParams.get("action");
   const action = peekCase(id)
     ?.runs.flatMap((r) => r.actions)
-    .find((a) => a.id === actionId && a.type === "provide_evidence");
+    .find((a) => a.id === actionId && (a.type === "provide_evidence" || a.type === "provide_supporting_info"));
   if (!action) return Response.json({ error: "Evidence action not found." }, { status: 404 });
   const dispute = await getDetail(id);
   const pdf = await buildEvidencePdf({
@@ -20,7 +20,7 @@ export const GET = route(async (req: Request, ctx: { params: Promise<{ id: strin
     dispute,
     order: await loadOrder(dispute),
     letter: String(action.input.letter ?? ""),
-    evidenceType: String(action.input.evidence_type ?? "OTHER"),
+    evidenceType: String(action.input.evidence_type ?? "SUPPORTING_INFORMATION"),
   });
   return new Response(pdf as BodyInit, {
     headers: { "Content-Type": "application/pdf", "Content-Disposition": `inline; filename="evidence-${id}.pdf"`, "Cache-Control": "no-store" },

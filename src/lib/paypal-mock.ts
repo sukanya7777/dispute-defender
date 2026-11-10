@@ -74,6 +74,7 @@ function links(d: Dispute): PayPalLink[] {
   if (d.status !== "RESOLVED") {
     if (d.dispute_life_cycle_stage === "INQUIRY") rels.push("send-message", "make-offer", "accept-claim", "escalate");
     else if (d.status === "WAITING_FOR_SELLER_RESPONSE") rels.push("provide-evidence", "accept-claim");
+    else if (d.status === "UNDER_REVIEW") rels.push("provide-supporting-info");
   }
   return rels.map((rel) => ({ rel, href: rel === "self" ? base : `${base}/${rel}`, method: rel === "self" ? "GET" : "POST" }));
 }
@@ -237,6 +238,13 @@ export const mockPayPal: PayPalApi = {
     ];
     d.status = "UNDER_REVIEW";
     d.dispute_state = "UNDER_PAYPAL_REVIEW";
+    touch(d);
+  },
+
+  async provideSupportingInfo(id, notes, pdf) {
+    const d = mustGet(id);
+    requireLink(d, "provide-supporting-info");
+    d.evidences = [...(d.evidences ?? []), { evidence_type: "OTHER", source: "SUBMITTED_BY_SELLER", notes: notes + (pdf ? `\n[attached: supporting-info-${id}.pdf, ${pdf.byteLength} bytes]` : "") }];
     touch(d);
   },
 

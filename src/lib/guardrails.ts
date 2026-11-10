@@ -10,6 +10,7 @@ export const PAYPAL_REL: Record<ActionType, string> = {
   send_message: "send-message",
   make_offer: "make-offer",
   provide_evidence: "provide-evidence",
+  provide_supporting_info: "provide-supporting-info",
   accept_claim: "accept-claim",
   escalate_to_claim: "escalate",
 };
@@ -18,6 +19,7 @@ const TEXT_FIELDS: Record<ActionType, string[]> = {
   send_message: ["message"],
   make_offer: ["note"],
   provide_evidence: ["notes"],
+  provide_supporting_info: ["notes"],
   accept_claim: ["note"],
   escalate_to_claim: ["note"],
 };
@@ -44,7 +46,7 @@ export function checkAction(action: StagedAction, d: Dispute): string | null {
       return `PayPal only allows these offer types here: ${types.join(", ")}.`;
     }
   }
-  if (action.type === "provide_evidence" && typeof action.input.letter !== "string") return "The evidence letter is missing.";
+  if ((action.type === "provide_evidence" || action.type === "provide_supporting_info") && typeof action.input.letter !== "string") return "The evidence letter is missing.";
   return null;
 }
 

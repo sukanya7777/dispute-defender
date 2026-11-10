@@ -54,6 +54,8 @@ const SYSTEM = `You are Dispute Defender, an agent that handles PayPal disputes 
 # How PayPal disputes work
 - INQUIRY stage: buyer and seller talk directly. The seller can message the buyer, make a refund offer, accept the claim (full refund, closes the dispute), or escalate to a claim so PayPal decides. Many "not received" inquiries end when the buyer is shown the delivery scan.
 - Claim stages (CHARGEBACK, PRE_ARBITRATION, ARBITRATION): PayPal decides. When the status is WAITING_FOR_SELLER_RESPONSE the seller must provide evidence before seller_response_due_date or loses by default. Evidence is a typed submission (for example PROOF_OF_FULFILLMENT with carrier and tracking number) plus notes and a document.
+- A dispute can also go straight to PayPal's review (status UNDER_REVIEW). If available_actions then lists provide-supporting-info, use it to put the seller's proof in front of the reviewer; if the seller is at fault and no refund action is available, record the assessment and say the seller should wait for PayPal's decision.
+- The buyer's own statement may be in the message thread or in evidences with source SUBMITTED_BY_BUYER.
 - PayPal only allows certain actions at each moment. get_dispute returns available_actions; an action that is not listed there will be rejected, so do not stage it.
 - Seller Protection covers "item not received" and "unauthorised" claims on physical goods when the seller has carrier proof of delivery to the address on the PayPal transaction. It does not cover "not as described" claims. For digital goods, access and usage logs are the evidence that counts.
 - Losing a claim costs the seller the refund plus PayPal's dispute fee; get_store_policy returns the fee the seller pays and their other limits.
@@ -155,6 +157,20 @@ const tools: Beta.BetaTool[] = [
     },
   },
   {
+    name: "stage_provide_supporting_info",
+    description: "Stage supporting information for PayPal's reviewer (provide-supporting-info). Use when the dispute is already under PayPal's review and this is the action PayPal offers: it puts the seller's proof in front of the reviewer before they decide. A PDF packet is generated from your letter plus the order record and attached.",
+    strict: true,
+    input_schema: {
+      type: "object",
+      properties: {
+        notes: { type: "string", description: "The notes PayPal's reviewer reads first: the decisive facts with carrier, tracking number, delivery date and place. Maximum 1,900 characters." },
+        letter: { type: "string", description: "Full statement for the PDF packet, plain text paragraphs, chronological." },
+      },
+      required: ["notes", "letter"],
+      additionalProperties: false,
+    },
+  },
+  {
     name: "stage_accept_claim",
     description: "Stage accepting liability (accept-claim): PayPal refunds the buyer the full disputed amount and closes the dispute. Use when the buyer is right or the case cannot be won.",
     strict: true,
@@ -209,6 +225,7 @@ const STAGE_TOOLS: Record<string, ActionType> = {
   stage_send_message: "send_message",
   stage_make_offer: "make_offer",
   stage_provide_evidence: "provide_evidence",
+  stage_provide_supporting_info: "provide_supporting_info",
   stage_accept_claim: "accept_claim",
   stage_escalate_to_claim: "escalate_to_claim",
 };
@@ -420,6 +437,7 @@ const TOOL_LABEL: Record<string, string> = {
   stage_send_message: "Drafted a message to the buyer",
   stage_make_offer: "Drafted a settlement offer",
   stage_provide_evidence: "Prepared evidence for PayPal",
+  stage_provide_supporting_info: "Prepared supporting information for PayPal",
   stage_accept_claim: "Prepared to accept the claim",
   stage_escalate_to_claim: "Prepared to escalate to a PayPal claim",
   record_assessment: "Recorded the assessment",
@@ -620,6 +638,12 @@ export async function executeRun(disputeId: string, runId: string, by: "seller" 
           const order = await loadOrder(d);
           const pdf = await buildEvidencePdf({ storeName: settings.storeName, dispute: d, order, letter: String(i.letter), evidenceType: String(i.evidence_type) });
           await pp.provideEvidence(disputeId, { evidence_type: String(i.evidence_type), notes: String(i.notes), tracking: i.tracking as never }, pdf);
+          break;
+        }
+        case "provide_supporting_info": {
+          const order = await loadOrder(d);
+          const pdf = await buildEvidencePdf({ storeName: settings.storeName, dispute: d, order, letter: String(i.letter), evidenceType: "SUPPORTING_INFORMATION" });
+          await pp.provideSupportingInfo(disputeId, String(i.notes), pdf);
           break;
         }
         case "accept_claim": {

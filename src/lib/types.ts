@@ -114,7 +114,7 @@ export interface Assessment {
   risk_flags: string[];
 }
 
-export type ActionType = "send_message" | "make_offer" | "provide_evidence" | "accept_claim" | "escalate_to_claim";
+export type ActionType = "send_message" | "make_offer" | "provide_evidence" | "provide_supporting_info" | "accept_claim" | "escalate_to_claim";
 
 export interface StagedAction {
   id: string;

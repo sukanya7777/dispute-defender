@@ -2,7 +2,7 @@
 // starts the agent on anything that newly needs the seller's attention.
 import { aiConfigured, disputeSnapshot, isRunning, startRun } from "./agent";
 import { cache } from "./cache";
-import { num, paypal } from "./paypal";
+import { allowedActions, num, paypal } from "./paypal";
 import { db, peekCase } from "./store";
 import type { AgentRun, Dispute, DisputeRow } from "./types";
 
@@ -29,7 +29,10 @@ export function latestRun(disputeId: string): AgentRun | undefined {
 const NEEDS_SELLER = new Set(["WAITING_FOR_SELLER_RESPONSE", "OPEN"]);
 
 function maybeAnalyze(d: Dispute, trigger: "new_dispute" | "status_change" | "webhook"): void {
-  if (!aiConfigured() || d.status === "RESOLVED" || !NEEDS_SELLER.has(d.status) || isRunning(d.dispute_id)) return;
+  // The seller can act when PayPal is waiting for them, or while PayPal is
+  // reviewing and still accepts supporting information.
+  const canAct = NEEDS_SELLER.has(d.status) || (d.status === "UNDER_REVIEW" && allowedActions(d).includes("provide-supporting-info"));
+  if (!aiConfigured() || d.status === "RESOLVED" || !canAct || isRunning(d.dispute_id)) return;
   const last = latestRun(d.dispute_id);
   const snap = disputeSnapshot(d);
   if (last && last.snapshot === snap) return; // already handled this exact situation

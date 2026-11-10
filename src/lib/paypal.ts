@@ -40,6 +40,7 @@ export interface PayPalApi {
   sendMessage(id: string, message: string): Promise<void>;
   makeOffer(id: string, offer: { note: string; offer_type: string; offer_amount?: Money }): Promise<void>;
   provideEvidence(id: string, evidence: EvidenceInput, pdf?: Uint8Array): Promise<void>;
+  provideSupportingInfo(id: string, notes: string, pdf?: Uint8Array): Promise<void>;
   acceptClaim(id: string, body: { note: string; accept_claim_type?: string }): Promise<void>;
   escalate(id: string, note: string): Promise<void>;
   sandboxRequireEvidence(id: string, action: "BUYER_EVIDENCE" | "SELLER_EVIDENCE"): Promise<void>;
@@ -158,6 +159,15 @@ const real: PayPalApi = {
     await call("POST", `/v1/customer/disputes/${encodeURIComponent(id)}/provide-evidence`, undefined, { form });
   },
 
+  async provideSupportingInfo(id, notes, pdf) {
+    // Available while PayPal is reviewing a claim: extra notes and documents
+    // for the reviewer, without a formal evidence request.
+    const form = new FormData();
+    form.append("input", new Blob([JSON.stringify({ notes })], { type: "application/json" }), "input.json");
+    if (pdf) form.append("file1", new Blob([pdf as BlobPart], { type: "application/pdf" }), `supporting-info-${id}.pdf`);
+    await call("POST", `/v1/customer/disputes/${encodeURIComponent(id)}/provide-supporting-info`, undefined, { form });
+  },
+
   async acceptClaim(id, body) {
     await call("POST", `/v1/customer/disputes/${encodeURIComponent(id)}/accept-claim`, body);
   },
@@ -270,7 +280,7 @@ export function paypal(): PayPalApi {
 
 /** Action names (HATEOAS `rel`s) PayPal currently allows on a dispute. */
 export function allowedActions(d: Dispute): string[] {
-  return (d.links ?? []).map((l) => l.rel).filter((r) => r !== "self");
+  return (d.links ?? []).map((l) => l.rel.replaceAll("_", "-")).filter((r) => r !== "self");
 }
 
 export function num(m: Money | undefined): number {
