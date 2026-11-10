@@ -1,0 +1,22 @@
+# Render blueprint: New + > Blueprint > pick this repo, then fill in the secrets.
+services:
+  - type: web
+    name: dispute-defender
+    runtime: node
+    plan: free
+    buildCommand: npm ci && npm run build
+    startCommand: npm run start
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_VERSION
+        value: "22"
+      - key: PAYPAL_CLIENT_ID
+        sync: false
+      - key: PAYPAL_CLIENT_SECRET
+        sync: false
+      - key: PAYPAL_WEBHOOK_ID
+        sync: false
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      - key: AGENT_DAILY_RUN_LIMIT
+        value: "60"
