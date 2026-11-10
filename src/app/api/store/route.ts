@@ -8,7 +8,10 @@ import { db } from "@/lib/store";
 export const dynamic = "force-dynamic";
 
 export const GET = route(async () => {
+  // Orders made in the simulator stay in the store file; hide them when live.
+  const simCaptures = (db().mock as { captures?: Record<string, unknown> } | undefined)?.captures ?? {};
   const orders = Object.values(db().orders)
+    .filter((o) => isSimulator() || !(o.captureId in simCaptures))
     .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
     .slice(0, 12)
     .map((o) => ({ orderId: o.orderId, captureId: o.captureId, sku: o.sku, productName: o.productName, amount: o.amount, createdAt: o.createdAt, buyer: o.buyer.name ?? null }));
