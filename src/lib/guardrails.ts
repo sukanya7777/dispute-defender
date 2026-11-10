@@ -60,7 +60,12 @@ export function checkAction(action: StagedAction, d: Dispute): string | null {
 }
 
 /** A direct refund is possible while the dispute is open and PayPal reports a refundable amount. */
+export function refundedSoFar(d: Dispute): number {
+  return (d.refund_details?.transactions ?? []).reduce((sum, t) => sum + num(t.gross_amount), 0);
+}
+
 export function canRefundPayment(d: Dispute): boolean {
+  if (refundedSoFar(d) >= num(d.dispute_amount) - 0.001) return false; // already refunded in full
   return d.status !== "RESOLVED" && !d.adjudications?.length && Boolean(d.disputed_transactions?.[0]?.seller_transaction_id) && num(d.refund_details?.allowed_refund_amount) > 0;
 }
 

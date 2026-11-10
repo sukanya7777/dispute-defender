@@ -230,6 +230,7 @@ export default function DisputePage() {
   // PayPal records its ruling first and closes the case a little later.
   const ruling = !resolved ? d.adjudications?.at(-1) : undefined;
   const ruledForSeller = ruling?.type === "DENY_BUYER";
+  const refunded = (d.refund_details?.transactions ?? []).reduce((sum, t) => sum + Number(t.gross_amount?.value ?? 0), 0);
   const post = (op: string) => api(`/api/disputes/${id}/sandbox`, { method: "POST", json: { op } });
 
   return (
@@ -268,6 +269,13 @@ export default function DisputePage() {
         <div className="banner info" style={ruledForSeller ? { background: "var(--good-soft)", color: "var(--good)", borderColor: "#bfe6d2" } : undefined}>
           <div>
             <b>{ruledForSeller ? `PayPal has ruled in your favour. You keep ${money(amount, cur)}.` : "PayPal has ruled for the buyer."}</b> PayPal is closing the case; the status updates when it does.
+          </div>
+        </div>
+      )}
+      {!resolved && !ruling && refunded > 0 && (
+        <div className="banner info">
+          <div>
+            <b>{money(refunded, cur)} refunded to the buyer.</b> PayPal is closing the case; the status updates when it does.
           </div>
         </div>
       )}
@@ -405,7 +413,7 @@ export default function DisputePage() {
 
         <div className="stack">
           {/* ---- demo controls ---- */}
-          {!resolved && !ruling && (
+          {!resolved && !ruling && refunded === 0 && (
             <section className="card">
               <div className="card-head">
                 <h2>Play the other side</h2>
